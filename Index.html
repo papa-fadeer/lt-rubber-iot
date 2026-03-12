@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>L.T. Rubber IoT - Dashboard</title>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #eef2f7; padding: 20px; color: #333; }
+        .dashboard { max-width: 900px; margin: auto; display: grid; grid-template-columns: 1fr 2fr; gap: 20px; }
+        .card { background: white; padding: 25px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); text-align: center; }
+        .full-width { grid-column: 1 / -1; }
+        h1 { color: #2c3e50; margin-bottom: 30px; text-align: center; font-weight: 300; }
+        .value { font-size: 40px; font-weight: bold; color: #2980b9; margin: 10px 0; }
+        .label { font-size: 13px; color: #95a5a6; text-transform: uppercase; letter-spacing: 1px; }
+        .status { font-size: 12px; margin-bottom: 20px; display: block; }
+        .controls { display: flex; gap: 10px; margin-top: 20px; }
+        button { flex: 1; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        .btn-on { background: #27ae60; color: white; }
+        .btn-off { background: #e74c3c; color: white; }
+        button:hover { opacity: 0.8; transform: translateY(-2px); }
+        canvas { max-height: 300px; }
+        @media (max-width: 768px) { .dashboard { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+
+    <h1>L.T. Rubber ห้องรมยาง IoT</h1>
+    <span id="conn-status" class="status" style="text-align: center;">สถานะ: กำลังเชื่อมต่อ...</span>
+
+    <div class="dashboard">
+        <div class="card">
+            <div class="label">อุณหภูมิ (°C)</div>
+            <div id="temp" class="value">--</div>
+            <div class="label" style="margin-top: 20px;">ความชื้น (%)</div>
+            <div id="humid" class="value" style="color: #27ae60;">--</div>
+            
+            <div class="controls">
+                <button class="btn-on" onclick="sendCmd('on')">เปิดพัดลม</button>
+                <button class="btn-off" onclick="sendCmd('off')">ปิดพัดลม</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="label">แนวโน้มความร้อน (Real-time Trend)</div>
+            <canvas id="tempChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        // --- ส่วนที่ต้องแก้ไขข้อมูล NETPIE ของคุณ ---
+        const config = {
+            host: 'wss://broker.netpie.io:443/mqtt',
+            clientId: '18d3ffa4-5225-4254-be45-602d8a4d7a61',
+            username: '1wNXhKsEB8taY2k2MmwvJosQi923CxNC',
+            password: 'CJ99D~-PLmEa~l)OHFJkDRL8T8vWjCzi'
+        };
+
+        const client = mqtt.connect(config.host, config);
+        
+        // --- ตั้งค่ากราฟ ---
+        const ctx = document.getElementById('tempChart').getContext('2d');
+        const tempChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [], // เก็บเวลา
+                datasets: [{
+                    label: 'อุณหภูมิ (°C)',
+                    data: [],
+                    borderColor: '#2980b9',
+                    backgroundColor: 'rgba(41, 128, 185, 0.1)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4 // ความโค้งของเส้น
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: { y: { beginAtZero: false } }
+            }
+        });
+
+        // รับข้อมูลจาก MQTT
+        client.on('connect', () => {
+            document.getElementById('conn-status').innerText = 'สถานะ: เชื่อมต่อสำเร็จ';
+            document.getElementById('conn-status').style.color = '#27ae60';
+            client.subscribe('@shadow/data/updated');
+        });
+
+        client.on('message', (topic, payload) => {
+            const json = JSON.parse(payload.toString());
+            const data = json.data;
+            const now = new Date().toLocaleTimeString();
+
+            if(data.Temperature) {
+                document.getElementById('temp').innerText = data.Temperature.toFixed(1);
+                
+                // อัปเดตกราฟ
+                if (tempChart.data.labels.length > 20) { // เก็บแค่ 20 จุดล่าสุด
+                    tempChart.data.labels.shift();
+                    tempChart.data.datasets[0].data.shift();
+                }
+                tempChart.data.labels.push(now);
+                tempChart.data.datasets[0].data.push(data.Temperature);
+                tempChart.update();
+            }
+            if(data.Humidity) {
+                document.getElementById('humid').innerText = data.Humidity.toFixed(1);
+            }
+        });
+
+        function sendCmd(mode) {
+            client.publish('@msg/relay', mode);
+        }
+    </script>
+</body>
+</html>
